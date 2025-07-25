@@ -3,7 +3,7 @@ import requests
 import os
 
 # --- Configuration ---
-API_URL = "http://127.0.0.1:5000" # URL of our Flask API server
+API_URL = "http://127.0.0.1:5000"
 
 # --- UI Setup ---
 st.set_page_config(page_title="StegoSleuth", layout="centered")
@@ -17,7 +17,7 @@ def handle_response(response, mode):
         if mode == 'embed':
             st.success(res_json.get("message", "Success!"))
             st.code(res_json.get("encryption_key_hex"), language="text")
-            st.info(res_json.get("note", "Save this key to extract the message later!"))
+            st.info("Save this key to extract the message later!")
         elif mode == 'extract':
             st.success("Message extracted successfully!")
             st.text_area("Recovered Message", value=res_json.get("secret_message"), height=200)
@@ -34,8 +34,13 @@ with st.sidebar:
     st.header("Controls")
     operation_mode = st.radio("Choose Operation", ("Embed", "Extract"))
     media_type = st.selectbox("Select Media Type", ("Image", "Audio", "Video"))
+    # --- Final list of algorithms ---
+    algorithm = st.selectbox(
+        "Select Encryption Algorithm",
+        ("AES", "ChaCha20", "Salsa20", "CAST-128", "Blowfish")
+    )
 
-st.header(f"{operation_mode} a Message in an {media_type}")
+st.header(f"{operation_mode} a Message in an {media_type} using {algorithm}")
 
 # --- Embed Logic ---
 if operation_mode == "Embed":
@@ -43,16 +48,18 @@ if operation_mode == "Embed":
         secret_message = st.text_area("Enter your secret message:", height=150)
         uploaded_file = st.file_uploader(f"Upload your cover {media_type}", type=None)
         
-        # This button is now inside the form
         submitted = st.form_submit_button(f"Embed in {media_type}")
 
         if submitted:
             if uploaded_file and secret_message:
-                with st.spinner("Processing... This might take a moment."):
-                    endpoint = f"/embed{'_' + media_type.lower() if media_type != 'Image' else ''}"
+                with st.spinner("Processing..."):
+                    endpoint = "/embed"
                     files = {media_type.lower(): (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                    data = {'message': secret_message}
-                    
+                    data = {
+                        'message': secret_message,
+                        'media_type': media_type.lower(),
+                        'algorithm': algorithm.lower()
+                    }
                     try:
                         response = requests.post(f"{API_URL}{endpoint}", files=files, data=data)
                         handle_response(response, 'embed')
@@ -67,16 +74,18 @@ elif operation_mode == "Extract":
         encryption_key = st.text_input("Enter your encryption key:")
         uploaded_file = st.file_uploader(f"Upload your stego {media_type}", type=None)
         
-        # This button is now inside the form
         submitted = st.form_submit_button(f"Extract from {media_type}")
 
         if submitted:
             if uploaded_file and encryption_key:
-                with st.spinner("Processing... This might take a moment."):
-                    endpoint = f"/extract{'_' + media_type.lower() if media_type != 'Image' else ''}"
+                with st.spinner("Processing..."):
+                    endpoint = "/extract"
                     files = {media_type.lower(): (uploaded_file.name, uploaded_file.getvalue(), uploaded_file.type)}
-                    data = {'key': encryption_key}
-
+                    data = {
+                        'key': encryption_key,
+                        'media_type': media_type.lower(),
+                        'algorithm': algorithm.lower()
+                    }
                     try:
                         response = requests.post(f"{API_URL}{endpoint}", files=files, data=data)
                         handle_response(response, 'extract')

@@ -1,20 +1,19 @@
-from Cryptodome.Cipher import AES
+from Cryptodome.Cipher import ChaCha20_Poly1305
 from Cryptodome.Random import get_random_bytes
-import os
 
 def encrypt_message(message: str, key: bytes):
-    # Encode the message to bytes
+    """Encrypts a message using ChaCha20-Poly1305."""
     data = message.encode('utf-8')
-    # Create a new AES cipher
-    cipher = AES.new(key, AES.MODE_GCM)
-    # Encrypt the data
+    # The nonce is created automatically by the library
+    cipher = ChaCha20_Poly1305.new(key=key)
     ciphertext, tag = cipher.encrypt_and_digest(data)
-    # Return all necessary parts to decrypt later
+    # We need to return the nonce that was generated
     return ciphertext, tag, cipher.nonce
+
 def decrypt_message(key: bytes, ciphertext: bytes, tag: bytes, nonce: bytes):
-    """Decrypts a message using AES-GCM."""
+    """Decrypts a message using ChaCha20-Poly1305."""
     try:
-        cipher = AES.new(key, AES.MODE_GCM, nonce=nonce)
+        cipher = ChaCha20_Poly1305.new(key=key, nonce=nonce)
         decrypted_data = cipher.decrypt_and_verify(ciphertext, tag)
         return decrypted_data.decode('utf-8')
     except (ValueError, KeyError):

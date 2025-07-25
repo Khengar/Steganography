@@ -1,43 +1,68 @@
-import shutil
 import os
+import subprocess
+from .audio_handler import hide_message_in_audio, extract_message_from_audio
+
+TEMP_AUDIO_FILENAME = "temp_audio.wav"
+MODIFIED_AUDIO_FILENAME = "modified_audio.wav"
+
 
 def hide_message_in_video(video_path: str, message: bytes, output_path: str):
     """
-    Hides a message by appending it to the end of the video file.
-    This robust method avoids re-encoding.
+    Hides a message in a video's audio track using direct ffmpeg commands.
     """
-    # 1. Define a stop indicator to know where the message ends
-    data_to_hide = message + b'--STOP--'
-    data_len = len(data_to_hide)
-    
-    # 2. First, copy the original video to the output path
-    shutil.copyfile(video_path, output_path)
-    
-    # 3. Now, append the actual data and its length to the end of the new file
-    with open(output_path, 'ab') as f:
-        f.write(data_to_hide)
-        # We also write the length of the data (as 8 bytes) to make extraction easy
-        f.write(data_len.to_bytes(8, 'big'))
+    # 1. Extract the audio track using ffmpeg
+    extract_command = [
+        'ffmpeg',
+        '-i', video_path,
+        '-vn', # No video
+        '-acodec', 'pcm_s16le', # Use WAV format
+        '-y', # Overwrite output file if it exists
+        TEMP_AUDIO_FILENAME
+    ]
+    subprocess.run(extract_command, check=True, capture_output=True)
+
+    # 2. Use our audio handler to hide the message in the extracted audio
+    hide_message_in_audio(TEMP_AUDIO_FILENAME, message, MODIFIED_AUDIO_FILENAME)
+
+    # 3. Replace the original audio with our modified audio
+    replace_command = [
+        'ffmpeg',
+        '-i', video_path,       # Original video input
+        '-i', MODIFIED_AUDIO_FILENAME, # Modified audio input
+        '-c:v', 'copy',         # Copy the video stream without re-encoding
+        '-c:a', 'copy',         # <-- THIS IS THE FIX: Copy the audio stream too
+        '-map', '0:v:0',        # Map the video stream from the first input
+        '-map', '1:a:0',        # Map the audio stream from the second input
+        '-y',                   # Overwrite output file if it exists
+        output_path
+    ]
+    subprocess.run(replace_command, check=True, capture_output=True)
+
+    # 4. Clean up temporary files
+    os.remove(TEMP_AUDIO_FILENAME)
+    os.remove(MODIFIED_AUDIO_FILENAME)
+
 
 def extract_message_from_video(video_path: str):
     """
-    Extracts a message that was appended to the end of a video file.
+    Extracts a hidden message from a video's audio track using ffmpeg.
     """
-    with open(video_path, 'rb') as f:
-        # 1. Seek to the end of the file minus 8 bytes to read the length
-        f.seek(-8, os.SEEK_END)
-        data_len_bytes = f.read(8)
-        data_len = int.from_bytes(data_len_bytes, 'big')
-        
-        # 2. Seek back to the start of our hidden data block
-        f.seek(-8 - data_len, os.SEEK_END)
-        
-        # 3. Read the exact length of our hidden data
-        hidden_data = f.read(data_len)
+    # 1. Extract the audio track to a temporary file
+    extract_command = [
+        'ffmpeg',
+        '-i', video_path,
+        '-vn',
+        '-acodec', 'pcm_s16le',
+        '-y',
+        TEMP_AUDIO_FILENAME
+    ]
+    subprocess.run(extract_command, check=True, capture_output=True)
 
-        # 4. Verify and strip the stop indicator to get the original message
-        stop_indicator = b'--STOP--'
-        if hidden_data.endswith(stop_indicator):
-            return hidden_data[:-len(stop_indicator)]
-        else:
-            raise ValueError("Could not find a valid message. Stop indicator missing.")
+    # 2. Use our audio handler to extract the message
+    try:
+        message = extract_message_from_audio(TEMP_AUDIO_FILENAME)
+    finally:
+        # 3. Ensure the temporary file is always cleaned up
+        os.remove(TEMP_AUDIO_FILENAME)
+
+    return message
